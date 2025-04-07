@@ -1,0 +1,87 @@
+name: Auto Label Test Cases
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  auto-label-test-case:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || "";
+            const labels = issue.labels.map(label => label.name);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = issue.number;
+
+            const labelsToAdd = [];
+            const labelsToRemove = [];
+
+            if (!labels.includes("Test Case")) return;
+
+            const getDropdownValue = (label) => {
+              const regex = new RegExp(`${label}\\s*\\n([^\\n]+)(\\n|$)`, 'i');
+              const match = body.match(regex);
+              return match ? match[1].trim() : null;
+            };
+
+            const isCheckboxChecked = (label) => {
+              const regex = new RegExp(`- \\[x\\]\\s*${label}`, 'i');
+              return regex.test(body);
+            };
+
+            const handleLabels = (selected, optionsMap) => {
+              Object.entries(optionsMap).forEach(([dropdownValue, label]) => {
+                if (selected === dropdownValue && !labels.includes(label)) labelsToAdd.push(label);
+                if (selected !== dropdownValue && labels.includes(label)) labelsToRemove.push(label);
+              });
+            };
+
+            handleLabels(getDropdownValue("Type of Testing"), {
+              "Navigation": "Navigation",
+              "Content Testing": "Content Testing",
+              "GUI and Usability": "GUI and Usability",
+              "Performance Testing": "Performance testing",
+              "Compatibility Testing": "Compatibility Testing"
+            });
+
+            handleLabels(getDropdownValue("Where is this test run\\?"), {
+              "Local": "local",
+              "Production": "production"
+            });
+
+            handleLabels(getDropdownValue("Section of the Website"), {
+              "Header": "Header",
+              "Misiunea Noastra": "Misiunea Noastra",
+              "Cum poti ajuta tu?": "Cum poti ajuta si tu?",
+              "De ce sa ajuti?": "De ce sa ajuti?",
+              "Echipa": "Echipa",
+              "Povesti de succes": "Povesti de succes",
+              "Footer": "Footer"
+            });
+
+            const handleCheckboxLabel = (checkboxLabel, gitHubLabel) => {
+              if (isCheckboxChecked(checkboxLabel) && !labels.includes(gitHubLabel)) labelsToAdd.push(gitHubLabel);
+              if (!isCheckboxChecked(checkboxLabel) && labels.includes(gitHubLabel)) labelsToRemove.push(gitHubLabel);
+            };
+
+            handleCheckboxLabel("Cross-browser testing is required", "Cross-browser");
+            handleCheckboxLabel("Cross-OS testing is required", "Cross-OS");
+            handleCheckboxLabel("Bug was discovered during test execution", "Bug(s) found");
+
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({owner, repo, issue_number, labels: labelsToAdd});
+            }
+
+            for (const label of labelsToRemove) {
+              await github.rest.issues.removeLabel({owner, repo, issue_number, name: label}).catch(() => {});
+            }
